@@ -1,0 +1,652 @@
+---
+title: "Assignment"
+author: "LiYueting"
+date: "7/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+options(himltools.dir.version = FALSE)
+knitr::opts_chunk$set(fig.retina=3, ###give higher resolution than 1
+                      echo = TRUE, ###desplay code chunk
+                      eval = TRUE, ###execute the code chunk
+                      message = TRUE, ###give error message
+                      warning = TRUE) ###give error messages
+```
+
+### import packages
+```{r}
+packages = c('igraph','tidygraph',
+             'ggraph','visNetwork',
+             'lubridate','clock',
+             'tidyverse',"tm",
+             'tidytext', 
+             'widyr', 'wordcloud',
+             'DT', 'ggwordcloud', 
+             'textplot','hms',
+             'tidygraph', 'ggraph',
+             'igraph')
+for(p in packages){
+  if(!require(p,character.only = T)){
+    install.packages(p)
+  }
+  library(p,character.only = T)
+}
+```
+### read in data source
+```{r}
+GAStech_nodes <- read_csv("data source/MC1/EmployeeRecords.csv")
+GAStech_edges <- read_csv("data source/MC1/email headers.csv")
+```
+
+```{r}
+glimpse(GAStech_nodes)
+```
+
+```{r}
+GAStech_nodes$Name <- paste(GAStech_nodes$FirstName,GAStech_nodes$LastName)
+GAStech_nodes$Name <- gsub(" ",".",GAStech_nodes$Name)
+GAStech_nodes$id <- c(1:nrow(GAStech_nodes))
+GAStech_nodes$military[GAStech_nodes$MilitaryDischargeDate != "NA"] <- "YES"
+GAStech_nodes$military[is.na(GAStech_nodes$military)] <- "NO"
+```
+
+### change data type
+```{r}
+GAStech_nodes$BirthDate = mdy(GAStech_nodes$BirthDate)
+GAStech_nodes$CitizenshipStartDate = mdy(GAStech_nodes$CitizenshipStartDate)
+GAStech_nodes$PassportIssueDate = mdy(GAStech_nodes$PassportIssueDate)
+GAStech_nodes$PassportExpirationDate = mdy(GAStech_nodes$PassportExpirationDate)
+GAStech_nodes$CurrentEmploymentStartDate = mdy(GAStech_nodes$CurrentEmploymentStartDate)
+GAStech_nodes$MilitaryDischargeDate = mdy(GAStech_nodes$MilitaryDischargeDate)
+```
+
+### Switch column orders
+```{r}
+GAStech_nodes <- GAStech_nodes[, c(20, 19, 15, 12, 13, 4:8, 21, 1:3, 9:11, 14, 16:18)]
+GAStech_nodes$Name <- tolower(GAStech_nodes$Name)
+```
+
+```{r}
+GAStech_nodes_new <- GAStech_nodes
+GAStech_nodes_new$Name[GAStech_nodes_new$Name == "sten.sanjorge.jr."] <- "sten.sanjorge.jr"
+```
+
+```{r}
+glimpse(GAStech_nodes_new)
+```
+
+
+### process edges
+```{r}
+glimpse(GAStech_edges)
+```
+
+###to process gestech edges data
+```{r}
+GAStech_edges_new <- GAStech_edges %>% 
+  separate_rows(To)
+```
+
+### data cleaning
+
+```{r}
+GAStech_edges_new$From <- removeWords(GAStech_edges_new$From, "@gastech.com.kronos")
+```
+
+
+### Change format
+```{r}
+GAStech_edges_new$Date <- mdy_hm(GAStech_edges_new$Date)
+GAStech_edges_new$Weekday <-  wday(GAStech_edges_new$Date,
+                                 label = TRUE,
+                                 abbr = FALSE)
+```
+
+
+```{r}
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$From != "gastech.com.kronos",]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To != "gastech.com.kronos",]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$From != "@gastech.com.tethys",]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To != "@gastech.com.tethys",]
+```
+
+```{r}
+GAStech_edges_new$From <- tolower(GAStech_edges_new$From)
+GAStech_edges_new$To <- tolower(GAStech_edges_new$To)
+```
+
+```{r}
+GAStech_edges_new$From[GAStech_edges_new$From == "sten.sanjorge jr."] <- "sten.sanjorge.jr"
+```
+
+### remove emails that sent to themselves
+```{r}
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To != GAStech_edges_new$From,]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$Weekday != "NA",]
+```
+
+```{r}
+glimpse(GAStech_edges_new)
+```
+
+### keep data only from given edges
+```{r}
+vc <- unique(GAStech_nodes_new$Name)
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$From %in% vc,]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To %in% vc,]
+```
+
+```{r}
+glimpse(GAStech_edges_new)
+```
+### label from to use the infor from nodes
+
+```{r}
+nodes_ref <- GAStech_nodes_new[,1:2]
+colnames(nodes_ref) <- c("Source", "From")
+GAStech_edges_new1 <- merge(GAStech_edges_new, nodes_ref[, c("Source", "From")], by="From")
+colnames(nodes_ref) <- c("Target", "To")
+GAStech_edges_new1 <- merge(GAStech_edges_new1, nodes_ref[, c("Target", "To")], by="To")
+```
+
+```{r}
+glimpse(GAStech_edges_new1)
+```
+
+```{r}
+GAStech_edges_aggregated <- GAStech_edges_new1 %>%
+  group_by(Source, Target, Weekday) %>%
+    summarise(Weight = n()) %>%
+  filter(Weight > 1) %>%
+  ungroup()
+```
+
+
+```{r}
+glimpse(GAStech_edges_aggregated)
+```
+
+```{r}
+GAStech_graph <- tbl_graph(nodes = GAStech_nodes_new,
+                           edges = GAStech_edges_aggregated, 
+                           directed = TRUE)
+```
+
+```{r}
+GAStech_graph
+```
+
+```{r}
+GAStech_graph %>%
+  activate(edges) %>%
+  arrange(desc(Weight))
+```
+
+###Plotting network graph
+```{r}
+g <- ggraph(GAStech_graph) + 
+  geom_edge_link(aes(colour = 'grey50')) +
+  geom_node_point(aes(colour = 'grey40'))
+g + theme_graph(background = 'grey10',
+                text_colour = 'white')
+```
+
+###Fruchterman and Reingold layout
+```{r}
+g <- ggraph(GAStech_graph, 
+            layout = "fr") +
+  geom_edge_link(aes()) +
+  geom_node_point(aes())
+g + theme_graph()
+```
+
+### whether have military background
+```{r}
+g <- ggraph(GAStech_graph, 
+            layout = "nicely") +
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = military), 
+                  size = 3)
+g + theme_graph()
+```
+
+```{r}
+set_graph_style() 
+g <- ggraph(GAStech_graph, 
+            layout = "nicely") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType), 
+                  size = 2)
+g + facet_edges(~Weekday) +
+  th_foreground(foreground = "grey80",  
+                border = TRUE) +
+  theme(legend.position = 'bottom')
+```
+
+```{r}
+set_graph_style()
+g <- ggraph(GAStech_graph, 
+            layout = "nicely") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType), 
+                  size = 2)
+g + facet_nodes(~CurrentEmploymentType)+
+  th_foreground(foreground = "grey80",  
+                border = TRUE) +
+  theme(legend.position = 'bottom')
+```
+
+### betweenness
+```{r}
+g <- GAStech_graph %>%
+  mutate(betweenness_centrality = centrality_betweenness()) %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType,
+            size=betweenness_centrality))
+g + theme_graph()+
+    theme(legend.position = 'bottom')
+```
+### network
+```{r}
+g <- GAStech_graph %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType, 
+                      size = centrality_betweenness()))
+g + theme_graph()
+```
+### community
+```{r}
+g <- GAStech_graph %>%
+  mutate(community = as.factor(group_edge_betweenness(weights = Weight, directed = TRUE))) %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = community))  
+g + theme_graph()
+```
+
+```{r}
+GAStech_edges_aggregated <- GAStech_edges_new1 %>%
+  left_join(GAStech_nodes_new, by = c("From" = "Name")) %>%
+  rename(from = id) %>%
+  left_join(GAStech_nodes_new, by = c("To" = "Name")) %>%
+  rename(to = id) %>%
+  group_by(from, to) %>%
+    summarise(weight = n()) %>%
+  filter(from!=to) %>%
+  filter(weight > 1) %>%
+  ungroup()
+```
+
+```{r}
+glimpse(GAStech_edges_aggregated)
+```
+
+## interactive
+```{r}
+visNetwork(GAStech_nodes_new, 
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr")
+```
+
+
+```{r}
+GAStech_nodes_new <- GAStech_nodes_new %>%
+  rename(group = CurrentEmploymentType)
+```
+
+### Nodes
+```{r}
+visNetwork(GAStech_nodes_new,
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
+```
+
+### edges
+```{r}
+visNetwork(GAStech_nodes_new,
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visEdges(arrows = "to", 
+           smooth = list(enabled = TRUE, 
+                         type = "curvedCW")) %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
+
+```
+### add selection
+```{r}
+visNetwork(GAStech_nodes,
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visOptions(highlightNearest = TRUE,
+             nodesIdSelection = TRUE) %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
+```
+
+#### text analysis
+```{r}
+all_news <- "data source/MC1/News Articles/"
+```
+
+### infolder function
+```{r}
+read_folder <- function(infolder) {
+  tibble(file = dir(infolder, 
+                    full.names = TRUE)) %>%
+    mutate(text = map(file, 
+                      read_lines)) %>%
+    transmute(id = basename(file), 
+              text) %>%
+    unnest(text)
+}
+```
+
+### read in data
+```{r}
+raw_text <- tibble(folder = 
+                     dir(all_news, 
+                         full.names = TRUE)) %>%
+  mutate(folder_out = map(folder, 
+                          read_folder)) %>%
+  unnest(cols = c(folder_out)) %>%
+  transmute(newsgroup = basename(folder), 
+            id, text)
+write_rds(raw_text, "data source/MC1/rds/all_news.rds")
+```
+
+```{r}
+raw_text_backup <- raw_text
+```
+
+```{r}
+raw_text %>%
+  group_by(newsgroup) %>%
+  summarize(messages = n_distinct(id)) %>%
+  ggplot(aes(messages,newsgroup)) +
+  geom_col(fill = "lightblue") +
+  labs(y = NULL)
+```
+### clean text
+```{r}
+raw_text1<-raw_text[!(raw_text$text==""|raw_text$text=="<< Continue reading the main story >>"),]
+raw_text1<-raw_text1[!(raw_text1$text==" "|raw_text1$text=="<< to continue reading main history >>"),]
+raw_text1<-raw_text1[!(raw_text1$text=="<< to continue reading main history >>"),]
+```
+
+```{r}
+cleaned_text <- raw_text1 %>%
+  filter(str_detect(text, "^[^>]+[A-Za-z\\d]")
+         | text == "",
+         !str_detect(text, 
+                     "writes(:|\\.\\.\\.)$"),
+         !str_detect(text, 
+                     "^In article <"),
+         !str_detect(text, 
+                     "<<"),
+         !str_detect(text,
+                     "To continue reading main history"),
+         !str_detect(text,
+                     " to continue reading main history "),
+         !str_detect(text,
+                     "continue to read the principal history")
+  )
+
+```
+
+### text analysis
+```{r}
+usenet_words <- cleaned_text %>%
+  unnest_tokens(word, text) %>%
+  filter(str_detect(word, "[a-z']$"),
+         !word %in% stop_words$word)
+```
+
+```{r}
+usenet_words %>%
+  count(word, sort = TRUE)
+```
+
+```{r}
+words_by_newsgroup <- usenet_words %>%
+  count(newsgroup, word, sort = TRUE) %>%
+  ungroup()
+```
+
+### word cloud demonstration
+```{r}
+wordcloud(words_by_newsgroup$word,
+          words_by_newsgroup$n,
+          max.words = 300)
+```
+
+### Visualising Words in newsgroups(take long to run)
+```{r}
+set.seed(1234)
+words_by_newsgroup %>%
+  filter(n > 0) %>%
+ggplot(aes(label = word,
+           size = n)) +
+  geom_text_wordcloud() +
+  theme_minimal() +
+  facet_wrap(~newsgroup)
+```
+
+### Computing tf-idf within newsgroups
+```{r}
+tf_idf <- words_by_newsgroup %>%
+  bind_tf_idf(word, newsgroup, n) %>%
+  arrange(desc(tf_idf))
+```
+
+### Visualising tf-idf as interactive table
+```{r}
+DT::datatable(tf_idf, filter = 'top') %>% 
+  formatRound(columns = c('tf', 'idf', 
+                          'tf_idf'), 
+              digits = 3) %>%
+  formatStyle(0, 
+              target = 'row', 
+              lineHeight='25%')
+```
+
+### Visualising tf-idf within newsgroups
+```{r}
+tf_idf %>%
+  group_by(newsgroup) %>%
+  slice_max(tf_idf, 
+            n = 5) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, 
+                        tf_idf)) %>%
+  ggplot(aes(tf_idf, 
+             word, 
+             fill = newsgroup)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ newsgroup, 
+             scales = "free") +
+  labs(x = "tf-idf", 
+       y = NULL)
+```
+
+### Counting and correlating pairs of words with the widyr package
+```{r}
+newsgroup_cors <- words_by_newsgroup %>%
+  pairwise_cor(newsgroup, 
+               word, 
+               n, 
+               sort = TRUE)
+```
+
+### Visualising correlation as a network
+```{r}
+set.seed(2017)
+newsgroup_cors %>%
+  filter(correlation > .7) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(alpha = correlation, 
+                     width = correlation)) +
+  geom_node_point(size = 6, 
+                  color = "lightblue") +
+  geom_node_text(aes(label = name),
+                 color = "red",
+                 repel = TRUE) +
+  theme_void()
+```
+
+```{r}
+set.seed(2017)
+newsgroup_cors %>%
+  filter(correlation > .75) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(alpha = correlation, 
+                     width = correlation)) +
+  geom_node_point(size = 6, 
+                  color = "lightblue") +
+  geom_node_text(aes(label = name),
+                 color = "red",
+                 repel = TRUE) +
+  theme_void()
+```
+
+
+### Bigram
+```{r}
+bigrams <- cleaned_text %>%
+  unnest_tokens(bigram, 
+                text, 
+                token = "ngrams", 
+                n = 2)
+```
+
+```{r}
+bigrams_count <- bigrams %>%
+  filter(bigram != 'NA') %>%
+  count(bigram, sort = TRUE)
+```
+
+```{r}
+bigrams_separated <- bigrams %>%
+  filter(bigram != 'NA') %>%
+  separate(bigram, c("word1", "word2"), 
+           sep = " ")
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+```
+
+```{r}
+bigram_counts <- bigrams_filtered %>% 
+  count(word1, word2, sort = TRUE)
+```
+
+### Create a network graph from bigram data frame
+```{r}
+bigram_graph <- bigram_counts %>%
+  filter(n > 40) %>%
+  graph_from_data_frame()
+bigram_graph
+```
+
+### Visualizing a network of bigrams with ggraph
+```{r}
+set.seed(123)
+ggraph(bigram_graph, layout = "nicely") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), 
+                 vjust = 0.7, 
+                 hjust = 1)
+```
+
+```{r}
+set.seed(1234)
+a <- grid::arrow(type = "closed", 
+                 length = unit(.15,
+                               "inches"))
+ggraph(bigram_graph, 
+       layout = "nicely") +
+  geom_edge_link(aes(edge_alpha = n), 
+                 show.legend = FALSE,
+                 arrow = a, 
+                 end_cap = circle(.07,
+                                  'inches')) +
+  geom_node_point(color = "lightblue", 
+                  size = 5) +
+  geom_node_text(aes(label = name), 
+                 vjust = 1, 
+                 hjust = 1) +
+  theme_void()
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+
