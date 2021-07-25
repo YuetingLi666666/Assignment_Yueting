@@ -68,71 +68,7 @@ for(p in packages){
 }
 ```
 
-This graph visualise the correlation between news data sources provided as a network
 ```{r}
-set.seed(2017)
-newsgroup_cors %>%
-  filter(correlation > .7) %>%
-  graph_from_data_frame() %>%
-  ggraph(layout = "fr") +
-  geom_edge_link(aes(alpha = correlation, 
-                     width = correlation)) +
-  geom_node_point(size = 6, 
-                  color = "lightblue") +
-  geom_node_text(aes(label = name),
-                 color = "red",
-                 repel = TRUE) +
-  theme_void()
-
-```
-
-For a differnet correlation value being set as threshold, we can see how cews sources are related
-```{r}
-set.seed(2017)
-newsgroup_cors %>%
-  filter(correlation > .75) %>%
-  graph_from_data_frame() %>%
-  ggraph(layout = "fr") +
-  geom_edge_link(aes(alpha = correlation, 
-                     width = correlation)) +
-  geom_node_point(size = 6, 
-                  color = "lightblue") +
-  geom_node_text(aes(label = name),
-                 color = "red",
-                 repel = TRUE) +
-  theme_void()
-```
-
-
-
-
-This is the Visualising tf-idf within newsgroups
-```{r}
-tf_idf %>%
-  group_by(newsgroup) %>%
-  slice_max(tf_idf, 
-            n = 5) %>%
-  ungroup() %>%
-  mutate(word = reorder(word, 
-                        tf_idf)) %>%
-  ggplot(aes(tf_idf, 
-             word, 
-             fill = newsgroup)) +
-  geom_col(show.legend = FALSE) +
-  facet_wrap(~ newsgroup, 
-             scales = "free") +
-  labs(x = "tf-idf", 
-       y = NULL)
-```
-
-### Visualizing a network of bigrams with ggraph
-```{r}
-set.seed(123)
-ggraph(bigram_graph, layout = "nicely") +
-  geom_edge_link() +
-  geom_node_point() +
-  geom_node_text(aes(label = name), 
-                 vjust = 0.7, 
-                 hjust = 1)
+glimpse(GAStech_nodes)
 ```
 
