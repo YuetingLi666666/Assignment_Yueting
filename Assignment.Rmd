@@ -437,18 +437,6 @@ wordcloud(words_by_newsgroup$word,
           max.words = 300)
 ```
 
-### Visualising Words in newsgroups(take long to run)
-```{r}
-set.seed(1234)
-words_by_newsgroup %>%
-  filter(n > 0) %>%
-ggplot(aes(label = word,
-           size = n)) +
-  geom_text_wordcloud() +
-  theme_minimal() +
-  facet_wrap(~newsgroup)
-```
-
 ### Computing tf-idf within newsgroups
 ```{r}
 tf_idf <- words_by_newsgroup %>%
