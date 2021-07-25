@@ -12,12 +12,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-options(himltools.dir.version = FALSE)
-knitr::opts_chunk$set(fig.retina=3, ###give higher resolution than 1
-                      echo = TRUE, ###desplay code chunk
-                      eval = TRUE, ###execute the code chunk
-                      message = TRUE, ###give error message
-                      warning = TRUE) ###give error messages
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## 1. Assignment requirements
