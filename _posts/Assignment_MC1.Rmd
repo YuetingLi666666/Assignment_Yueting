@@ -1,0 +1,42 @@
+---
+title: "Assignment"
+description: |
+  The concepts, methods and techniques learned in class to solve real world problem using visual analytics techniques.
+author:
+  - name: Yueting Li
+    url: https://linkedin.com/in/yueting-li-9ab569208
+date: 07-25-2021
+output:
+  distill::distill_article:
+    self_contained: false
+---
+
+```{r setup, include=FALSE}
+options(himltools.dir.version = FALSE)
+knitr::opts_chunk$set(fig.retina=3, ###give higher resolution than 1
+                      echo = TRUE, ###desplay code chunk
+                      eval = TRUE, ###execute the code chunk
+                      message = TRUE, ###give error message
+                      warning = TRUE) ###give error messages
+```
+
+## 1. Assignment 
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
