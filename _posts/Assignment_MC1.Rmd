@@ -12,7 +12,12 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+options(himltools.dir.version = FALSE)
+knitr::opts_chunk$set(fig.retina=3, ###give higher resolution than 1
+                      echo = TRUE, ###desplay code chunk
+                      eval = TRUE, ###execute the code chunk
+                      message = FALSE, ###give error message
+                      warning = FALSE) ###give error messages
 ```
 
 ## 1. Assignment requirements
@@ -39,10 +44,8 @@ Use visual analytics to analyze the available data and develop responses to the 
 
 3) Given the data sources provided, use visual analytics to identify potential official and unofficial relationships among GASTech, POK, the APA, and Government. Include both personal relationships and shared goals and objectives. Provide evidence for these relationships. Please limit your answer to 6 images and 400 words.
 
-4) If you solved this mini-challenge in 2014, how did you approach it differently this year?
 
-## 2. Assignment answering
-1) Characterize the news data sources provided. Which are primary sources and which are derivative sources? What are the relationships between the primary and derivative sources? Please limit your answer to 8 images and 300 words.
+## 2. data preparation
 
 ```{r}
 packages = c('igraph','tidygraph',
@@ -63,11 +66,208 @@ for(p in packages){
 }
 ```
 
+#### read in data source
 ```{r}
-glimpse(GAStech_nodes)
+GAStech_nodes <- read_csv("data source/MC1/EmployeeRecords.csv")
+GAStech_edges <- read_csv("data source/MC1/email headers.csv")
+GAStech_nodes$Name <- paste(GAStech_nodes$FirstName,GAStech_nodes$LastName)
+GAStech_nodes$Name <- gsub(" ",".",GAStech_nodes$Name)
+GAStech_nodes$id <- c(1:nrow(GAStech_nodes))
+GAStech_nodes$military[GAStech_nodes$MilitaryDischargeDate != "NA"] <- "YES"
+GAStech_nodes$military[is.na(GAStech_nodes$military)] <- "NO"
 ```
 
-This graph visualise the correlation between news data sources provided as a network
+#### change data type
+```{r}
+GAStech_nodes$BirthDate = mdy(GAStech_nodes$BirthDate)
+GAStech_nodes$CitizenshipStartDate = mdy(GAStech_nodes$CitizenshipStartDate)
+GAStech_nodes$PassportIssueDate = mdy(GAStech_nodes$PassportIssueDate)
+GAStech_nodes$PassportExpirationDate = mdy(GAStech_nodes$PassportExpirationDate)
+GAStech_nodes$CurrentEmploymentStartDate = mdy(GAStech_nodes$CurrentEmploymentStartDate)
+GAStech_nodes$MilitaryDischargeDate = mdy(GAStech_nodes$MilitaryDischargeDate)
+```
+
+#### Switch column orders
+```{r}
+GAStech_nodes <- GAStech_nodes[, c(20, 19, 15, 12, 13, 4:8, 21, 1:3, 9:11, 14, 16:18)]
+GAStech_nodes$Name <- tolower(GAStech_nodes$Name)
+GAStech_nodes_new <- GAStech_nodes
+GAStech_nodes_new$Name[GAStech_nodes_new$Name == "sten.sanjorge.jr."] <- "sten.sanjorge.jr"
+```
+
+#### to process gestech edges data & data cleaning
+```{r}
+GAStech_edges_new <- GAStech_edges %>% 
+  separate_rows(To)
+```
+
+```{r}
+GAStech_edges_new$From <- removeWords(GAStech_edges_new$From, "@gastech.com.kronos")
+GAStech_edges_new$Date <- mdy_hm(GAStech_edges_new$Date)
+GAStech_edges_new$Weekday <-  wday(GAStech_edges_new$Date,
+                                 label = TRUE,
+                                 abbr = FALSE)
+
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$From != "gastech.com.kronos",]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To != "gastech.com.kronos",]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$From != "@gastech.com.tethys",]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To != "@gastech.com.tethys",]
+
+GAStech_edges_new$From <- tolower(GAStech_edges_new$From)
+GAStech_edges_new$To <- tolower(GAStech_edges_new$To)
+GAStech_edges_new$From[GAStech_edges_new$From == "sten.sanjorge jr."] <- "sten.sanjorge.jr"
+
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To != GAStech_edges_new$From,]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$Weekday != "NA",]
+
+vc <- unique(GAStech_nodes_new$Name)
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$From %in% vc,]
+GAStech_edges_new <- GAStech_edges_new[GAStech_edges_new$To %in% vc,]
+nodes_ref <- GAStech_nodes_new[,1:2]
+
+colnames(nodes_ref) <- c("Source", "From")
+GAStech_edges_new1 <- merge(GAStech_edges_new, nodes_ref[, c("Source", "From")], by="From")
+colnames(nodes_ref) <- c("Target", "To")
+GAStech_edges_new1 <- merge(GAStech_edges_new1, nodes_ref[, c("Target", "To")], by="To")
+
+GAStech_edges_aggregated <- GAStech_edges_new1 %>%
+  group_by(Source, Target, Weekday) %>%
+    summarise(Weight = n()) %>%
+  filter(Weight > 1) %>%
+  ungroup()
+
+GAStech_graph <- tbl_graph(nodes = GAStech_nodes_new,
+                           edges = GAStech_edges_aggregated, 
+                           directed = TRUE)
+
+GAStech_graph %>%
+  activate(edges) %>%
+  arrange(desc(Weight))
+
+
+```
+
+#### text data preparation
+```{r}
+all_news <- "data source/MC1/News Articles/"
+
+read_folder <- function(infolder) {
+  tibble(file = dir(infolder, 
+                    full.names = TRUE)) %>%
+    mutate(text = map(file, 
+                      read_lines)) %>%
+    transmute(id = basename(file), 
+              text) %>%
+    unnest(text)
+}
+
+raw_text <- tibble(folder = 
+                     dir(all_news, 
+                         full.names = TRUE)) %>%
+  mutate(folder_out = map(folder, 
+                          read_folder)) %>%
+  unnest(cols = c(folder_out)) %>%
+  transmute(newsgroup = basename(folder), 
+            id, text)
+write_rds(raw_text, "data source/MC1/rds/all_news.rds")
+
+raw_text_backup <- raw_text
+
+raw_text1<-raw_text[!(raw_text$text==""|raw_text$text=="<< Continue reading the main story >>"),]
+raw_text1<-raw_text1[!(raw_text1$text==" "|raw_text1$text=="<< to continue reading main history >>"),]
+raw_text1<-raw_text1[!(raw_text1$text=="<< to continue reading main history >>"),]
+
+cleaned_text <- raw_text1 %>%
+  filter(str_detect(text, "^[^>]+[A-Za-z\\d]")
+         | text == "",
+         !str_detect(text, 
+                     "writes(:|\\.\\.\\.)$"),
+         !str_detect(text, 
+                     "^In article <"),
+         !str_detect(text, 
+                     "<<"),
+         !str_detect(text,
+                     "To continue reading main history"),
+         !str_detect(text,
+                     " to continue reading main history "),
+         !str_detect(text,
+                     "continue to read the principal history")
+  )
+
+usenet_words <- cleaned_text %>%
+  unnest_tokens(word, text) %>%
+  filter(str_detect(word, "[a-z']$"),
+         !word %in% stop_words$word)
+
+words_by_newsgroup <- usenet_words %>%
+  count(newsgroup, word, sort = TRUE) %>%
+  ungroup()
+
+```
+
+
+## 3. Assignment answering
+1) Characterize the news data sources provided. Which are primary sources and which are derivative sources? What are the relationships between the primary and derivative sources? Please limit your answer to 8 images and 300 words.
+
+
+#### Computing tf-idf within newsgroups
+```{r}
+tf_idf <- words_by_newsgroup %>%
+  bind_tf_idf(word, newsgroup, n) %>%
+  arrange(desc(tf_idf))
+```
+
+#### Visualising tf-idf as interactive table
+```{r}
+DT::datatable(tf_idf, filter = 'top') %>% 
+  formatRound(columns = c('tf', 'idf', 
+                          'tf_idf'), 
+              digits = 3) %>%
+  formatStyle(0, 
+              target = 'row', 
+              lineHeight='50%')
+```
+
+#### Visualising tf-idf within newsgroups
+```{r}
+tf_idf %>%
+  group_by(newsgroup) %>%
+  slice_max(tf_idf, 
+            n = 5) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, 
+                        tf_idf)) %>%
+  ggplot(aes(tf_idf, 
+             word, 
+             fill = newsgroup)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ newsgroup, 
+             scales = "free") +
+  labs(x = "tf-idf", 
+       y = NULL)
+```
+
+#### Counting and correlating pairs of words with the widyr package
+```{r}
+newsgroup_cors <- words_by_newsgroup %>%
+  pairwise_cor(newsgroup, 
+               word, 
+               n, 
+               sort = TRUE)
+```
+
+#### See the correlation between each of news sources
+```{r}
+DT::datatable(newsgroup_cors, filter = 'top') %>% 
+  formatRound(columns = c('item1', 'item2', 
+                          'correlation'), 
+              digits = 3) %>%
+  formatStyle(0, 
+              target = 'row', 
+              lineHeight='25%')
+```
+
+#### Visualising correlation as a network
 ```{r}
 set.seed(2017)
 newsgroup_cors %>%
@@ -82,5 +282,248 @@ newsgroup_cors %>%
                  color = "red",
                  repel = TRUE) +
   theme_void()
+```
 
+#### Applying different treshold(community detection by step)
+```{r}
+set.seed(2017)
+newsgroup_cors %>%
+  filter(correlation > .75) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(alpha = correlation, 
+                     width = correlation)) +
+  geom_node_point(size = 6, 
+                  color = "lightblue") +
+  geom_node_text(aes(label = name),
+                 color = "red",
+                 repel = TRUE) +
+  theme_void()
+```
+
+```{r}
+set.seed(2017)
+newsgroup_cors %>%
+  filter(correlation > .8) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(alpha = correlation, 
+                     width = correlation)) +
+  geom_node_point(size = 6, 
+                  color = "lightblue") +
+  geom_node_text(aes(label = name),
+                 color = "red",
+                 repel = TRUE) +
+  theme_void()
+```
+
+2) Characterize any biases you identify in these news sources, with respect to their representation of specific people, places, and events. Give examples. Please limit your answer to 6 images and 500 words.
+
+
+```{r}
+raw_text %>%
+  group_by(newsgroup) %>%
+  summarize(messages = n_distinct(id)) %>%
+  ggplot(aes(messages,newsgroup)) +
+  geom_col(fill = "lightblue") +
+  labs(y = NULL)
+```
+
+The following dataset present the top words mentioned in various news
+
+```{r}
+usenet_words <- cleaned_text %>%
+  unnest_tokens(word, text) %>%
+  filter(str_detect(word, "[a-z']$"),
+         !word %in% stop_words$word)
+usenet_words %>%
+  count(word, sort = TRUE)
+```
+
+#### word cloud demonstration
+
+
+```{r}
+usenet_words %>%
+  count(word, sort = TRUE)
+```
+
+
+```{r}
+wordcloud(words_by_newsgroup$word,
+          words_by_newsgroup$n,
+          max.words = 300)
+```
+
+####  Visualising Words regarding to newsgroups
+```{r}
+set.seed(1234)
+words_by_newsgroup %>%
+  filter(n > 15) %>%
+  ggplot(aes(label = word,
+             size = n)) +
+  geom_text_wordcloud() +
+  theme_minimal() +
+  facet_wrap(~newsgroup)
+```
+
+3) Given the data sources provided, use visual analytics to identify potential official and unofficial relationships among GASTech, POK, the APA, and Government. Include both personal relationships and shared goals and objectives. Provide evidence for these relationships. Please limit your answer to 6 images and 400 words.
+
+
+###Plotting network graph
+```{r}
+g <- ggraph(GAStech_graph) + 
+  geom_edge_link(aes(colour = 'grey50')) +
+  geom_node_point(aes(colour = 'grey40'))
+g + theme_graph(background = 'grey10',
+                text_colour = 'white')
+```
+
+###Fruchterman and Reingold layout
+```{r}
+g <- ggraph(GAStech_graph, 
+            layout = "fr") +
+  geom_edge_link(aes()) +
+  geom_node_point(aes())
+g + theme_graph()
+```
+
+### whether have military background
+```{r}
+g <- ggraph(GAStech_graph, 
+            layout = "nicely") +
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = military), 
+                  size = 3)
+g + theme_graph()
+```
+
+```{r}
+set_graph_style() 
+g <- ggraph(GAStech_graph, 
+            layout = "nicely") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType), 
+                  size = 2)
+g + facet_edges(~Weekday) +
+  th_foreground(foreground = "grey80",  
+                border = TRUE) +
+  theme(legend.position = 'bottom')
+```
+
+```{r}
+set_graph_style()
+g <- ggraph(GAStech_graph, 
+            layout = "nicely") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType), 
+                  size = 2)
+g + facet_nodes(~CurrentEmploymentType)+
+  th_foreground(foreground = "grey80",  
+                border = TRUE) +
+  theme(legend.position = 'bottom')
+```
+
+### betweenness
+```{r}
+g <- GAStech_graph %>%
+  mutate(betweenness_centrality = centrality_betweenness()) %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType,
+            size=betweenness_centrality))
+g + theme_graph()+
+    theme(legend.position = 'bottom')
+```
+### network
+```{r}
+g <- GAStech_graph %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = CurrentEmploymentType, 
+                      size = centrality_betweenness()))
+g + theme_graph()
+```
+### community
+```{r}
+g <- GAStech_graph %>%
+  mutate(community = as.factor(group_edge_betweenness(weights = Weight, directed = TRUE))) %>%
+  ggraph(layout = "fr") + 
+  geom_edge_link(aes(width=Weight), 
+                 alpha=0.2) +
+  scale_edge_width(range = c(0.1, 5)) +
+  geom_node_point(aes(colour = community))  
+g + theme_graph()
+```
+
+```{r}
+GAStech_edges_aggregated <- GAStech_edges_new1 %>%
+  left_join(GAStech_nodes_new, by = c("From" = "Name")) %>%
+  rename(from = id) %>%
+  left_join(GAStech_nodes_new, by = c("To" = "Name")) %>%
+  rename(to = id) %>%
+  group_by(from, to) %>%
+    summarise(weight = n()) %>%
+  filter(from!=to) %>%
+  filter(weight > 1) %>%
+  ungroup()
+```
+
+```{r}
+glimpse(GAStech_edges_aggregated)
+```
+
+## interactive
+```{r}
+visNetwork(GAStech_nodes_new, 
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr")
+```
+
+
+```{r}
+GAStech_nodes_new <- GAStech_nodes_new %>%
+  rename(group = CurrentEmploymentType)
+```
+
+### Nodes
+```{r}
+visNetwork(GAStech_nodes_new,
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
+```
+
+### edges
+```{r}
+visNetwork(GAStech_nodes_new,
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visEdges(arrows = "to", 
+           smooth = list(enabled = TRUE, 
+                         type = "curvedCW")) %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
+
+```
+### add selection
+```{r}
+visNetwork(GAStech_nodes,
+           GAStech_edges_aggregated) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visOptions(highlightNearest = TRUE,
+             nodesIdSelection = TRUE) %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
 ```
