@@ -7,7 +7,7 @@ author:
     url: https://linkedin.com/in/yueting-li-9ab569208
 date: 07-25-2021
 output:
-distill::distill_article:
+html_document:
 code_folding: true
 toc: true
 toc_depth: 6
