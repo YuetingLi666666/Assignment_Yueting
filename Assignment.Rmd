@@ -14,6 +14,7 @@ knitr::opts_chunk$set(fig.retina=3, ###give higher resolution than 1
                       warning = TRUE) ###give error messages
 ```
 
+
 ### import packages
 ```{r}
 packages = c('igraph','tidygraph',
@@ -25,7 +26,7 @@ packages = c('igraph','tidygraph',
              'DT', 'ggwordcloud', 
              'textplot','hms',
              'tidygraph', 'ggraph',
-             'igraph')
+             'igraph','flipTime')
 for(p in packages){
   if(!require(p,character.only = T)){
     install.packages(p)
@@ -406,10 +407,63 @@ cleaned_text <- raw_text1 %>%
          !str_detect(text,
                      " to continue reading main history "),
          !str_detect(text,
-                     "continue to read the principal history")
+                     "continue to read the principal history"),
+         !str_detect(text,
+                     "SOURCE:")
   )
 
 ```
+
+```{r}
+time_text <- raw_text1 %>%
+  filter(str_detect(text, "^[^>]+[A-Za-z\\d]")
+         | text == "",
+         str_detect(text, 
+                     "PUBLISHED:")
+  )
+time_text1 <- time_text
+time_text1$text <- removeWords(time_text1$text, "PUBLISHED:")
+time_text1$text <- removeWords(time_text1$text, "PUBLISHED: ")
+time_text1$text1 <- dmy(time_text$text)
+time_text1$text1 <- format(as.Date(time_text1$text1),'%d/%m/%Y')
+time_text1$text2 <- ymd(time_text$text)
+time_text1$text2 <- format(as.Date(time_text1$text2),'%d/%m/%Y')
+time_text1$Time <- ifelse(is.na(time_text1$text1),
+                           time_text1$text2,time_text1$text1)
+time_text1 <- time_text1[,c(1,2,6)]
+```
+```{r}
+time_text1 <- time_text1[complete.cases(time_text1), ]
+```
+
+```{r}
+title_text <- raw_text1 %>%
+  filter(str_detect(text, "^[^>]+[A-Za-z\\d]")
+         | text == "",
+         str_detect(text, 
+                     "TITLE:")
+  )
+title_text$text <- removeWords(title_text$text, "TITLE: ")
+colnames(title_text) <- c("News Source", "id", "Title")
+```
+
+```{r}
+cleaned_text <- cleaned_text %>%
+  filter(!str_detect(text, 
+                     "PUBLISHED:")
+  )
+```
+
+
+```{r}
+title_new <- merge(title_text, time_text1[, c("id", "Time")], by="id")
+```
+
+```{r}
+All_text <- merge(cleaned_text, title_text[,c("id","Title")], by="id")
+All_text <- merge(All_text, time_text1[, c("id", "Time")], by="id")
+```
+
 
 ### text analysis
 ```{r}
@@ -435,6 +489,18 @@ words_by_newsgroup <- usenet_words %>%
 wordcloud(words_by_newsgroup$word,
           words_by_newsgroup$n,
           max.words = 300)
+```
+
+### Visualising Words in newsgroups
+```{r}
+set.seed(1234)
+words_by_newsgroup %>%
+  filter(n > 15) %>%
+  ggplot(aes(label = word,
+             size = n)) +
+  geom_text_wordcloud() +
+  theme_minimal() +
+  facet_wrap(~newsgroup)
 ```
 
 ### Computing tf-idf within newsgroups
@@ -481,6 +547,24 @@ newsgroup_cors <- words_by_newsgroup %>%
                word, 
                n, 
                sort = TRUE)
+```
+
+```{r}
+glimpse(tf_idf)
+```
+
+```{r}
+glimpse(newsgroup_cors)
+```
+
+```{r}
+DT::datatable(newsgroup_cors, filter = 'top') %>% 
+  formatRound(columns = c('item1', 'item2', 
+                          'correlation'), 
+              digits = 3) %>%
+  formatStyle(0, 
+              target = 'row', 
+              lineHeight='25%')
 ```
 
 ### Visualising correlation as a network
@@ -636,5 +720,32 @@ ggraph(bigram_graph,
 
 ```
 
+```{r}
+GAStech_nodes_new <- GAStech_nodes_new %>%
+  rename(group = CurrentEmploymentType)
+GAStech_nodes_new$title <- GAStech_nodes_new$Name
+GAStech_nodes_new$label <- GAStech_nodes_new$Name
+```
+
+```{r}
+GAStech_edges_aggregated2 <- GAStech_edges_new1 %>%
+  left_join(GAStech_nodes_new, by = c("From" = "Name")) %>%
+  rename(from = id) %>%
+  left_join(GAStech_nodes_new, by = c("To" = "Name")) %>%
+  rename(to = id) %>%
+  ungroup()
+GAStech_edges_aggregated2$title <- iconv(GAStech_edges_aggregated2$Subject, to = "utf-8")
+GAStech_edges_aggregated2 <- GAStech_edges_aggregated2[,c(8,30,52)]
+```
 
 
+```{r}
+visNetwork(GAStech_nodes_new,
+           GAStech_edges_aggregated2) %>%
+  visIgraphLayout(layout = "layout_with_fr") %>%
+  visEdges(arrows = "to", 
+           smooth = list(enabled = TRUE, 
+                         type = "curvedCW")) %>%
+  visLegend() %>%
+  visLayout(randomSeed = 123)
+```
